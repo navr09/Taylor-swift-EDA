@@ -1,0 +1,590 @@
+---
+title: "ST 661 Project Group 7"
+author: "Naveen Ramprasad | Megan Ring | Jayasurya Duraisamy | Muhammad Tariq"
+date: "10/12/2021"
+output:
+  html_document:
+    code_folding: hide
+  pdf_document: default
+---
+
+## Taylor Swift Analysis {.tabset}
+
+### Objective
+<font size = "5">
+**Aim of our report is to analyse the pattern in songs and albums of Taylor Swift and thereby providing the behavioral pattern of Taylor swift that is reflected through her songs.**<br>
+**Below is a detailed objective:**<br>
+</font>
+<font size = "5">
+1. **Analyse the musical positiveness of her albums/songs over the years. Analyse trend lines w.r.t her vocabulary, danceability and other metrics over the years** <br>
+2. **Analyse the sentiment of Taylor's songs, find commonality between her albums and thereby deducing the genre she sings**
+
+</font>
+
+
+
+### Data description
+
+Variables Name| Description
+------------ | ------------
+ALBUM NAME | The name of the album
+ALBUM RELEASE | The Date album was released
+TRACK NAME   |  The name of the song.
+TRACK RELEASE   |   The date the song was first publicly released. This is the                                   earliest of album_release, promotional_release, and                                          single_release.
+DANCEABILITY     | How suitable a track is for dancing. 0.0 = least danceable,                                  1.0 = most danceable.
+ LOUDNESS  |      Loudness of track in decibels (dB), averaged across the                                    track.
+ACOUSTICNESS  | Confidence that the track is acoustic. 0.0 = low confidence,                                1.0 = high confidence.
+INSTRUMENTALNES | Confidence that the track is an instrumental track (i.e., no vocals).
+LIVENESS |  Confidence that the track is a live recording (i.e., an                                     audience is present). 0.0 = low confidence, 1.0 = high                                        confidence.  
+VALENCE  |  Musical positiveness conveyed by the track. 0.0 = low valence                               (e.g., sad, depressed, angry), 1.0 = high valence (e.g.,                                      happy, cheerful, euphoric).
+LYRICS     |  A list column containing the lyrics to each song
+METACRITIC SCORE  |    The official album rating from metacritic.
+
+### Dataset and libraries
+
+<font size = "4">
+
+**Dateset used**
+
+  * Taylor albumms
+  * Stop songs
+  * Taylor albu words
+  * Bing datatest for sentiment analysis
+  * Nrc dataset for sentiment analysis
+
+**Libraries used**
+
+  * taylor
+  * dplyr
+  * ggplot2
+  * stringr
+  * ggridges
+  * ggthemes
+  * data.tables
+  * tidyverse
+  * tidytext
+  * kableExtra
+  * syuzhet
+  * textdata
+  * shiny
+  * Ggally
+
+</font>
+
+```{r,warning=FALSE,message=FALSE}
+library(reshape)
+library(taylor)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(ggridges)
+library(ggthemes)
+library(data.table)
+library(tidyverse)
+library(tidytext)
+library(kableExtra)
+library(syuzhet)
+library(shiny)
+library(GGally)
+library(textdata)
+```
+
+
+### Data cleaning
+<font size = "4">
+
+**Although the data looked clean, we had to run a few data cleaning steps to make sure that the graphs look great and also to help ease our analysis.**
+**Here are a few of those steps with relevant snippets and code.**
+
+1. **Handling missing values**
+  + We notice that the promotional release and single release columns have significant nulls,
+  and as these columns aren't used in our analysis, we decided to drop them.
+```{r,warning=FALSE,message=FALSE}
+taylor_album_songs <- taylor::taylor_album_songs
+taylor_albums <- taylor::taylor_albums
+taylor_album_songs <- subset(taylor_album_songs, select = -c(featuring, promotional_release, single_release))
+```
+  + As we notice that the metacritic score column also has a few nulls, we decided to replace them with mean value as this wouldn't alter our analysis significantly.
+```{r,warning=FALSE,message=FALSE}
+taylor_albums$metacritic_score[is.na(taylor_albums$metacritic_score)] <- mean(taylor_albums$metacritic_score, na.rm=TRUE)
+```
+2. **Time stamp conversion**
+  + As we need just the year of the album release, we decide to convert the date format to just year
+```{r,warning=FALSE,message=FALSE}
+taylor_albums$release_year <- as.numeric(format(taylor_albums$album_release, "%Y"))
+```
+3. **Convert numeric format to string in the albums column as the album name cannot be numeric**
+  + The album "1989" has to be converted to a string for further analysis as R might tend to consider it as a numeric data type.
+```{r,warning=FALSE,message=FALSE}
+lyrics_data <- taylor::taylor_album_songs[,c("album_name","track_name","lyrics")]
+lyrics_data <- lyrics_data %>% 
+  mutate("album_name" = str_replace(lyrics_data$album_name, "1989", "Nineteen Eighty Nine"))
+
+taylor_album_songs <- taylor_album_songs %>%
+mutate("album_name" = str_replace(album_name, "1989", "Nineteen Eighty Nine"))
+
+taylor_albums <- taylor_albums %>%
+mutate("album_name" = str_replace(album_name, "1989", "Nineteen Eighty Nine"))
+```
+4. **Convert the lyrics data to an accessible column in dataset**
+  + As the lyrics data is stored in a tibble of multiple rows for each song depending on the lyrics,
+  we have gathered all the rows and consolidated it to a level of 1 row per each song with all the lyrics across a single column for the respective song.
+```{r,warning=FALSE,message=FALSE}
+lyrics_data <- lyrics_data %>% 
+  mutate(lyrics = map_chr(lyrics, ~ .[[2]] %>% str_c(collapse = " ")))
+```
+5. **Stop words removal**
+  + In the lyrics section, we notice that the lyrics contain stop words. As the analysis doesn't require these, we have used the stopwords library and a few more manual removals of stop words to clean the lyrics.
+```{r,warning=FALSE,message=FALSE}
+data(stop_words)
+
+# removing the stop words from the data
+tidy_lyrics <- lyrics_data %>%
+  unnest_tokens(word, lyrics) %>%
+  anti_join(stop_words, by=c("word"="word")) 
+
+# Removing a few more stop-words which aren't there in the library
+tidy_lyrics <- tidy_lyrics %>% 
+  anti_join(stop_words, by=c("word"="word")) %>% 
+  filter(word != "ooh") %>% 
+  filter(word != "yeah") %>% 
+  filter(word != "ah") %>% 
+  filter(word != "uh") %>% 
+  filter(word != "ha") %>%
+  filter(word != "whoa") %>%
+  filter(word != "eh") %>%
+  filter(word != "hoo") %>%
+  filter(word != "ey") %>%
+  filter(word != "mmm") %>% 
+  filter(word != "eeh") %>% 
+  filter(word != "huh") %>% 
+  filter(word != "na")
+```
+
+6. **Usage of additional packages for sentiment analysis**
+  + We have used packages like "bing" and "ncr" for the sentiment analysis in our EDA.
+```{r,warning=FALSE,message=FALSE}
+lyrics_data$word_count <- sapply(lyrics_data$lyrics, function(x) length(unlist(strsplit(as.character(x), "\\W+"))))
+songwise_wordcount <- lyrics_data
+tidy_lyrics_s2 <- lyrics_data %>%
+  unnest_tokens(word,lyrics)
+
+lyric_sentiment <- tidy_lyrics_s2 %>%
+  inner_join(get_sentiments("nrc"),by="word")
+
+tay_sentiment <- tidy_lyrics_s2%>%
+  inner_join(get_sentiments("bing"))%>% 
+  count(album_name, track_name, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+```
+7. **Choosing the right dataset**
+  + EDA on the columns of the datasets - Taylor swift all songs and Taylor swift album songs suggested that the songs were similar in sentiment across her album songs when compared to the songs of her collaboration. This suggested that we choose a cleaner dataset to analyse her songs as this would give us better results. We have also used join logics to bring in external data relevant for our analysis.
+  
+### Data analysis{.tabset}
+#### Goal 1
+<font size = "4"> 
+**Analyse the musical positiveness of her albums/songs over the years. Analyse trend lines w.r.t her vocabulary, danceability and other metrics over the years** <br>
+
+```{r,warning=FALSE,message=FALSE}
+pairs(taylor_album_songs[,c("danceability","energy"
+                    ,"loudness","acousticness","liveness","valence")], pch=10
+      ,col=factor(taylor_album_songs$album_name),main="Scatter plot across numeric columns")
+```
+<br>The above graphs show the relationship between different numerical columns in the data set for Taylors songs.<br>
+We notice a clear variance across the numerical columns w.r.t Valence. We delved deeper into this analysis by finding the correlation between these variables in the dataset.<br>
+
+```{r,warning=FALSE,message=FALSE}
+ggpairs(taylor_album_songs, columns = c("danceability","energy"
+                    ,"loudness","acousticness","liveness","tempo","valence")) + 
+  ggtitle("Correlation between numeric variables")
+```
+<br>From the above graph we can see that the variables that correlate the most with each other are valence and energy.  Valence is also seen to have a strong correlation with loudness and danceability while being negatively correlated with acousticness.  <br>
+This graph gives us a greater dept of understanding between the relationship of the numerical variables in the dataset.
+```{r,warning=FALSE,message=FALSE}
+
+taylor_album_songs_sortval = arrange(taylor_album_songs,valence)
+taylor_album_songs_sortval_subset = taylor_album_songs_sortval[,c("album_name","album_release","track_number"
+              ,"track_name","track_release"
+              ,"danceability","energy","loudness","speechiness","acousticness"
+              ,"instrumentalness","liveness","valence","tempo","duration_ms")]
+
+analysis_val_albums = taylor_album_songs_sortval_subset[,c("track_name","album_name","danceability","energy"
+                                                   ,"loudness","liveness","valence")]
+analysis_val_albums_conv <- analysis_val_albums %>%
+mutate("album_name" = str_replace(analysis_val_albums$album_name, "1989", "Nineteen Eighty Nine"))
+
+analysis_val_albums_conv %>% 
+  group_by(analysis_val_albums_conv$album_name) %>% 
+ggplot(aes(x = analysis_val_albums_conv$valence, y = analysis_val_albums_conv$album_name
+           , fill = ..x..)) + 
+  geom_density_ridges_gradient(scale = 0.9) + 
+  scale_fill_gradient(low = "white", high = "maroon3") + 
+  theme(panel.background = element_rect(fill = "white")) +
+  theme(plot.background = element_rect(fill = "white")) +
+  xlim(0,1) +
+  theme(legend.position = "none") + 
+  labs(x='Valence', y='Album name', title='Density graph of valence across albums',caption = "Figure1.3                                                                                                                               Naveen Ramprasad")
+
+```
+<br> This density graph above shows the variance in valence across each of Taylors albums.  We can see that all of her albums contain songs with a high and low valence score, showing a range of songs in her albums. We also notice that the albums - "Speak now, Reputation and Evermore have a negative influence on valence suggesting that these albums are majorly consisting of sad songs.
+
+```{r,warning=FALSE,message=FALSE, figures-side, out.width="50%"}
+#Joining taylor_album_songs and taylor_albums using left_join() to get album release years
+combined_data <- left_join(taylor_album_songs, taylor_albums, by = c("album_name"="album_name"))
+combined_data <- arrange(combined_data, release_year)
+combined_data$release_year <- as.numeric(format(combined_data$album_release.x, "%Y"))
+
+##Plotting her albums with respect to valence, to know how her songs has been over the years, like whether she sings happy songs
+## or sad songs
+combined_data %>% group_by(combined_data$release_year)%>%
+  ggplot(aes(reorder(album_name, release_year), valence)) + 
+  geom_boxplot(fill = "orange", colour = "#3366FF") + labs(x='Album name', y='Valence', title = 'Valence of Taylor swift songs across albums') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+combined_data %>% group_by(combined_data$release_year)%>%
+  ggplot(aes(reorder(album_name, release_year), danceability)) + 
+  geom_boxplot(fill = "light green", colour = "#3366FF") + labs(x='Album name', y='Danceability', title = 'Danceability of Taylor swift songs across albums' 
+  ,caption = "Figure 1.4 & 1.5                                                                                                                               Jayasurya") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+<br><br> **Valence plot**
+<br> As Valence is a factor that conveys musical positiveness(0: Sad and 1: happy). We notice that the median valence across all albums does not exceed 0.5, we can say that most of her song collection is on the sadder end of the spectrum.
+<br> **Danceability**
+<br> Taylor's albums - 1989, Red and Lover are seen to have higher median danceability scores which is not a surprise given the association of these albums was Taylor's pop era.
+
+```{r,warning=FALSE,message=FALSE}
+ui <- fluidPage(
+  titlePanel("Taylor album songs"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput(inputId = "Album_name", 
+                  label = "Select album name",  # Give the input a label to be displayed in the app
+                  choices = (taylor_album_songs$album_name),selected=" "),
+                  splitLayout(cellWidths = c("50%", "50%"), plotOutput("distPlot1"), 
+                              plotOutput("distPlot2"))
+      
+    ), 
+    mainPanel()
+  )
+)
+
+server <- function(input, output) {
+  data <- reactive({
+    req(input$Album_name)
+    df <- taylor_album_songs %>% filter(album_name %in% input$Album_name)
+  })
+  output$distPlot1 <- renderPlot({ggplot(data(), aes(x=album_name, y=valence)) +
+      geom_boxplot(fill = "light green", colour = "#3366FF") + coord_cartesian(ylim = c(0,1)) 
+})
+  output$distPlot2 <- renderPlot({ggplot(data(), aes(x=album_name, y=danceability)) + 
+      geom_boxplot(fill = "orange", colour = "#3366FF") + coord_cartesian(ylim = c(0,1))})
+  
+}  
+  
+
+shinyApp(ui = ui, server = server)
+
+```
+<br> The above shiny app shows the comparison between the danceability and valence for each album.
+
+
+```{r,warning=FALSE,message=FALSE}
+
+taylor_albums %>% ggplot(aes(reorder(album_name, release_year), metacritic_score)) + geom_col(aes(fill=metacritic_score)) + scale_fill_gradient('metacritic_score',low='purple',high='light blue') + labs(x='Album name', y='Metacritic score', title='Metacritic rating for Taylor albums',caption = "Figure 1.6                                                                                                                            Jayasurya" ) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+<br>Metacritic is a organisation that aggregates reviews of say, Movies, TV shows, songs etc. We decided to check how they have rated taylor swift albums. We plotted the album name and metacritic score with geom_col(), as it accepts two variables. While interpreting the plot,we can visualize that in the past three years her albums has performed well when compared to her initial years.
+
+
+#### Goal 2
+<font size = "4"> 
+**Analyse the sentiment of Taylor's songs, find commonality between her albums and thereby deducing the genre she sings**
+```{r,warning=FALSE,message=FALSE}
+lyrics_data <- taylor::taylor_album_songs[,c("album_name","track_name","lyrics")]
+lyrics_data <- lyrics_data %>% 
+  mutate("album_name" = str_replace(lyrics_data$album_name, "1989", "Nineteen Eighty Nine"))
+
+# Making the lyrics column EDA friendly as it was wrapped in a tibble.
+lyrics_data <- lyrics_data %>% 
+  mutate(lyrics = map_chr(lyrics, ~ .[[2]] %>% str_c(collapse = " ")))
+# Wordcount by song
+lyrics_data$word_count_by_song <- sapply(lyrics_data$lyrics, function(x) length(unlist(strsplit(as.character(x), "\\W+"))))
+songwise_wordcount <- lyrics_data
+
+
+#Filter out common words "Stop words"
+#sort each word into it's own row
+by_word <- lyrics_data %>%
+    unnest_tokens(line, lyrics) %>%
+    unnest_tokens(word, line)
+#get individual word count
+count_by_word <- by_word %>% count(word, sort=TRUE) %>%
+      arrange(-n)
+
+#Remove stop words from lyrics, using stop_words built into r
+words <- by_word %>%
+  anti_join(stop_words, by = "word") 
+  
+#count words minus stop words
+word_count <- words %>% count(word, sort = TRUE)
+
+#additional stop words to remove
+additional_stop_words <- tibble(word = c("ooh", "ah", "yeah", "ya", "la", "na", "da", "uh", "huh", "mm", "mmm", "ha", "em"))
+words2 <- words %>% anti_join(additional_stop_words, by = "word")
+
+#Number of times a word appears in an album
+wordcount_byalbum <- words2 %>%
+count(album_name, word) %>%
+group_by(album_name)
+
+#Get wordcount for number of unique words per album
+#Album Taylor Swift
+ATS <- wordcount_byalbum %>%
+filter(album_name == "Taylor Swift")
+ATSC <- nrow(ATS)
+#album Fearless
+AF <- wordcount_byalbum %>%
+filter(album_name == "Fearless (Taylor's Version)")
+AFC<- nrow(AF)
+#Album speak now
+ASN <- wordcount_byalbum %>%
+filter(album_name == "Speak Now")
+ASNC <- nrow(ASN)
+#Album red
+AR <- wordcount_byalbum %>%
+filter(album_name == "Red")
+ARC <- nrow(AR)
+#Album 1989
+A1989 <- wordcount_byalbum %>%
+filter(album_name == "Nineteen Eighty Nine")
+A1989C <- nrow(A1989)
+#Album reputation
+ARep <- wordcount_byalbum %>%
+filter(album_name == "reputation")
+ARepC <- nrow(ARep)
+#album lover
+AL <- wordcount_byalbum %>%
+filter(album_name == "Lover")
+ALC <- nrow(AL)
+#Album folklore
+AFolk <- wordcount_byalbum %>%
+filter(album_name == "folklore")
+AFolkC <- nrow(AFolk)
+#Album Evermore
+AEv <- wordcount_byalbum %>%
+filter(album_name == "evermore")
+AEvC <- nrow(AEv)
+
+#Create data fram of album name and number of unique words in album
+albumwords <- c(ATSC, AFC, ASNC, ARC, A1989C, ARepC, ALC, AFolkC, AEvC)
+albumnames <- c("Taylor Swift", "Fearless (Taylor's version)", "Speak Now", "RED", "1989", "Reputation", "Lover", "Folklore", "Evermore" )
+album_by_words <- cbind(albumnames, albumwords)
+album_by_words <- as.data.frame(album_by_words)
+album_by_words$albumnames <- factor(album_by_words$albumnames, levels = c("Taylor Swift", "Fearless (Taylor's version)", "Speak Now", "RED", "1989", "Reputation", "Lover", "Folklore", "Evermore" ) )
+
+#word count in descending order
+wordcount2 <- words2 %>% count(word, sort =TRUE) 
+#top 10 most used words
+wordcount10 <- wordcount2 %>%  top_n(10)
+
+#Bar plot of number of unique words in each album ordered by album release
+ggplot(album_by_words) +
+geom_bar(mapping = aes(x=albumnames, y=albumwords), stat = "identity", color = "blue", fill = "purple") +
+labs(x="Album Title", y="Word count",title = "No. of unique words",caption = "Figure2.1                                                                                                                                    Megan Ring") +
+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+#Bar plot top 10 words
+par(mfrow = c(1,2))
+ggplot(wordcount10,mapping=aes(x=reorder(word,-n), y = n)) + 
+  geom_bar(stat="identity", color = "blue", fill="purple") + 
+  coord_flip() + 
+  labs(x=NULL, y = "word count", title = "Top 10 most frequently used words by Taylor Swift across all albums",caption = "Figure 2.2                                                                                                                                    Megan Ring") + 
+  geom_text(aes(label = signif(n, digits = 3)), nudge_y = 8)
+```
+<br>**Vocabulary vs years**
+<br>After the removal of stopwords, we performed analysis on the words she uses in her lyrics. A trend can seen in the above graph where the number of unique words used by Taylor swift in her albums has greatly expanded throughout the years.<br>
+Her transition into pop did see a drop in the number of unique words seen in “Red”, “1989”, and “reputation”. The lower word count in these albums may be a reflection of their higher score in the danceability boxplot, with instrumental dance breaks present in the songs in these albums
+<br>**Top 10 most frequent words**
+<br> The bar plot above show us the top 10 most frequently used words by Taylor Swift across all her albums, on initial analysis of this bar plot we can see an emphasis on the theme of love and also an emphasis on emotions.<br>
+To further our analysis on Taylor's lyrics we will examine if there is a growth in the vocabulary she uses across albums and also perform some sentiment analysis. 
+
+```{r,warning=FALSE,message=FALSE}
+
+
+#word cloud of most common words
+library(wordcloud2)
+wordcount2 %>%
+  top_n(150) %>%
+ wordcloud2(color = "random-light", backgroundColor = "white", )
+
+```
+<br>Figure2.3                        Word cloud of most common words
+<br><br>
+<br> The word cloud here gives a greater dept of analysis on the types of words used by Taylor Swift. We see words such as "dancing", "hold", "honey" and "mine", give a strong suggestion that many of Taylor's songs revolve around past and current romantic relationships, which becomes quiet evident when listening to her albums.  
+
+
+```{r,warning=FALSE,message=FALSE}
+# Top Words used to express emotions and sentiments
+
+# Lyrics EDA
+
+lyrics_data <- taylor::taylor_album_songs[,c("album_name","track_name","lyrics")]
+lyrics_data <- lyrics_data %>% 
+  mutate("album_name" = str_replace(lyrics_data$album_name, "1989", "Nineteen Eighty Nine"))
+# Making the lyrics column EDA friendly as it was wrapped in a tibble.
+lyrics_data <- lyrics_data %>% 
+  mutate(lyrics = map_chr(lyrics, ~ .[[2]] %>% str_c(collapse = " ")))
+
+# Getting the total word count of each song
+lyrics_data$word_count <- sapply(lyrics_data$lyrics, function(x) length(unlist(strsplit(as.character(x), "\\W+"))))
+songwise_wordcount <- lyrics_data
+# Getting the total word count across albums
+# Plot graph here for lyrics data by joining it with years. Graph: Albums vs word_count 
+# in the order of years.
+# Plot another graph to show the year wise word count. years vs word_count
+# try to get both these graphs in one. Dynamic graphs
+lyrics_data_summary <- lyrics_data %>%
+  group_by(album_name) %>%
+  summarise("Total_Words" = sum(word_count))
+
+# Getting the list of stopwords
+data(stop_words)
+
+# removing the stop words from the data
+tidy_lyrics <- lyrics_data %>%
+  unnest_tokens(word, lyrics) %>%
+  anti_join(stop_words, by=c("word"="word")) 
+
+# Removing a few more stop-words which aren't there in the library
+tidy_lyrics <- tidy_lyrics %>% 
+  anti_join(stop_words, by=c("word"="word")) %>% 
+  filter(word != "ooh") %>% 
+  filter(word != "yeah") %>% 
+  filter(word != "ah") %>% 
+  filter(word != "uh") %>% 
+  filter(word != "ha") %>%
+  filter(word != "whoa") %>%
+  filter(word != "eh") %>%
+  filter(word != "hoo") %>%
+  filter(word != "ey") %>%
+  filter(word != "mmm") %>% 
+  filter(word != "eeh") %>% 
+  filter(word != "huh") %>% 
+  filter(word != "na")
+
+# Get the words she usually uses to express sentiment 
+lyrics_data$lyrics <- as.character(lyrics_data$lyrics)
+
+tidy_lyrics_s2 <- lyrics_data %>%
+  unnest_tokens(word,lyrics)
+
+lyric_sentiment <- tidy_lyrics_s2 %>%
+  inner_join(get_sentiments("nrc"),by="word")
+
+# Plot the graph to express the top go-to words while she tries to express her emotions
+lyric_sentiment %>%
+  count(word,sentiment,sort=TRUE) %>%
+  group_by(sentiment)%>%top_n(n=10) %>%
+  ungroup() %>%
+  ggplot(aes(x=reorder(word,n),y=n,fill=sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment,scales="free") +
+  xlab("Sentiments") + ylab("Scores")+
+  labs(caption = "Figure 2.4                                                                                                                                    Naveen Ramprasad") + 
+  ggtitle("Top words used to express emotions and sentiments") +
+  coord_flip()
+
+```
+<br> For the above set of graphs the nrc lexicon from the dataset sentiments in the tidytext package was used for analysis.<br>
+This lexicon assigned each word in each of Taylor's songs to an associated category.  The possible categories are anger, anticipation, disgust, fear, joy, negative, positive, sadness, surprise and trust as seen above.<br>
+Sentiments joy, surprise, trust, positive and anticipation have the greatest count of words associated with them having larger scales.  This indicates that Taylor uses songs associated with positive emotions to a greater extent than those associated with negative emotions.<br>
+
+```{r,warning=FALSE,message=FALSE}
+tay_sentiment <- tidy_lyrics_s2%>%
+  inner_join(get_sentiments("bing"))%>% 
+  count(album_name, track_name, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+# Replace the album names for graph convenience
+tay_sentiment$album_name[tay_sentiment$album_name=="Fearless (Taylor's Version)"]<-"Fearless"
+tay_sentiment$album_name[tay_sentiment$album_name=="Nineteen Eighty Nine"]<-"1989"
+
+# Positive sentiment
+tay_sentiment_pos <- tay_sentiment %>%                                      # Top N highest values by group
+  arrange(desc(sentiment)) %>% 
+  group_by(album_name) %>%
+  slice(1:3)
+
+# Negative sentiment
+tay_sentiment_neg <- tay_sentiment %>%                                      # Top N highest values by group
+  arrange((sentiment)) %>% 
+  group_by(album_name) %>%
+  slice(1:3)
+
+#Plot:
+# Top 3 songs of each album with positive sentiment
+tay_sentiment_pos%>%
+  ggplot(aes(reorder(track_name, sentiment), sentiment, fill = album_name)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~album_name, ncol = 2, scales = "free")+
+  labs(x = NULL,
+       y = "Sentiment",
+       title = "Top songs ranked by Positive sentiment",
+       caption = "                                                                                                                                    Naveen Ramprasad")+
+  theme_minimal()+
+  theme()+
+  coord_flip()
+
+# top 3 songs of each album with negative sentiment
+tay_sentiment_neg%>%
+  ggplot(aes(reorder(track_name, sentiment), sentiment, fill = album_name)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~album_name, ncol = 2, scales = "free")+
+  labs(x = NULL,
+       y = "Sentiment",
+       title = "Top songs ranked by Negative sentiment",
+       caption = "Figure 2.5                                                                                                                                    Naveen Ramrpasad")+
+  theme_minimal()+
+  theme()+
+  coord_flip()
+
+```
+
+<br>
+The graph above shows the sentiment score based on the bing dataset part of the tidyverse package for each song in Taylors albums, grouped by her albums.<br>
+A song with a score greater than 0 indicates that a song is more positive and has a greater number of words that are given a positive score within the bing package, which scores words on a range from -100 to 100 going from negative to positive sentiment, while songs with a ranking < 0 indicate that a song is negative overall, with a higher number of words with a negative words. Hence, the sentiment is calculated using the difference between the positive and negative score of each song.<br>
+Here we have highlighted her top three most positive songs and her top 3 most negative songs by sentiment for each album. <br>
+Albums "1989", "Lover" and "reputation" have higher values for the positive sentiment songs, what is unexpected about the results is that "1989" also has the most negative song by sentiment too.  This being "shake it off", which is quiet an upbeat song but clearly the choice of words chosen by Taylor portray a more negative sentiment when analysed in this way.<br>
+
+
+### Conclusion
+
+<font size = "4"> 
+
+<br>
+**In part one of our analysis, we notice that she is highly ranked amongst the critics across all her albums. Although we notice the diversity in valence across her songs, most of her songs have been sad songs rather than happy ones. The danceability scores across songs have been above average which suggests that the crowd seems to be enjoying her song collection regardless of the genre of the song she sings.**
+<br><br>
+**In part two of our analysis, we examined the lyrics of Taylor Swift's songs. From this analysis we can see clear differences in her latest two albums compared to all of her previous albums in terms of sentiment but also in expansion of vocabulary used by Taylor in her songs. As Taylor has matured, her output of music has also changed. What began as country music transitioned into pop and more recently into indie-folk music. This shows the diversity in her song collection that is evident in our analysis.**<br><br>
+**However across all of Taylor's songs a strong emphasis can be seen on the theme of love and relationships with "love" being her most frequently used word of all.**
+<br>
+
+<br>
+**In conclusion no matter what your mood Taylor's a good shout for your next spotify search from songs to cry to after your latest heartbreak, to songs to dance around your bedroom to after achieving an excellent result in your r group project and everything in between, she has it all.**
+<br>
+
+### Author's responsibilities
+
+<font size = "4"> 
+
+<br><br>
+I, Naveen Ramprasad performed part of the analysis on Taylor's lyrics producing some of the graphs observed in goal 2, part of analysis in goal1, data cleaning and creating a clear story line for our project
+<br><br>
+I, Megan Ring performed part of the analysis on Taylor's lyrics producing some of the graphs observed in group 2, and provided knowledge on Taylor swift for interpretation of graphs throughout the project.
+<br><br>
+I, Jayasurya Duraisamy performed part of the analysis for goal1 using numerical variables, data cleaning and creating an interactive plot interpretation using shiny.
+<br><br>
+I, Muhammad Tariq Saleem Khan performed part of the analysis for goal1 using numerical variables and compiled a data dictionary.
+</font>
