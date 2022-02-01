@@ -6,6 +6,8 @@ Below is a detailed objective:
 1. Analyse the musical positiveness of her albums/songs over the years. Analyse trend lines w.r.t her vocabulary, danceability and other metrics over the years
 2. Analyse the sentiment of Taylor’s songs, find commonality between her albums and thereby deducing the genre she sings
 
+## Language used
+R
 
 ## Conclusion
 In part one of our analysis, we notice that she is highly ranked amongst the critics across all her albums. Although we notice the diversity in valence across her songs, most of her songs have been sad songs rather than happy ones. The danceability scores across songs have been above average which suggests that the crowd seems to be enjoying her song collection regardless of the genre of the song she sings.
